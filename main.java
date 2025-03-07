@@ -1,4 +1,6 @@
 import java.util.Arrays;
+import java.util.List;
+import java.util.Random;
 import java.util.concurrent.atomic.AtomicReference;
 import java.util.concurrent.atomic.AtomicReferenceArray;
 
@@ -190,39 +192,91 @@ class OrderBook {
     }
 }
 
+class OrderAdder implements Runnable {
+    private final OrderBook ob;
+    private final Random random;
+
+    OrderAdder(OrderBook ob) {
+        this.ob = ob;
+        this.random = new Random();
+    }
+
+    @Override
+    public void run() {
+        while (!Thread.currentThread().isInterrupted()) {
+            List<String> bs = List.of("Buy", "Sell");
+            String orderType = bs.get(this.random.nextInt(bs.size()));
+
+            char l1 = (char) ('A' + random.nextInt(26));
+            char l2 = (char) ('A' + random.nextInt(26));
+            String ticker = "" + l1 + l2;
+
+            int qty = this.random.nextInt(100) + 1;
+            double price = this.random.nextDouble() * 100;
+
+            this.ob.addOrder(orderType, ticker, qty, price);
+
+            try {
+                Thread.sleep(500);
+            } catch (InterruptedException e) {
+                Thread.currentThread().interrupt();
+            }
+        }
+    }
+}
+
 
 public class main {
     
     public static void main(String[] args) {
         OrderBook ob = new OrderBook();
-        TickerOrder to;
+        // TickerOrder to;
 
-        ob.addOrder("Buy", "AAA", 10, 20.0);
-        ob.addOrder("Buy", "AAA", 10, 5.0);
-        ob.addOrder("Buy", "AAA", 10, 40.0);
+        // ob.addOrder("Buy", "AAA", 10, 20.0);
+        // ob.addOrder("Buy", "AAA", 10, 5.0);
+        // ob.addOrder("Buy", "AAA", 10, 40.0);
 
-        to = ob.orders.get(0);
+        // to = ob.orders.get(0);
         
 
-        ob.addOrder("Sell", "AAA", 10, 20.0);
-        ob.addOrder("Sell", "AAA", 10, 5.0);
-        ob.addOrder("Sell", "AAA", 10, 40.0);
+        // ob.addOrder("Sell", "AAA", 10, 20.0);
+        // ob.addOrder("Sell", "AAA", 10, 5.0);
+        // ob.addOrder("Sell", "AAA", 10, 40.0);
+
+        // ob.matchOrders();
+
+        // to = ob.orders.get(0);
+        // System.out.println("Sell Orders");
+        // Order sOrder = to.sellOrders;
+        // while (sOrder != null) {
+        //     System.out.println(sOrder.price);
+        //     sOrder = sOrder.next.get();
+        // }
+
+        // System.out.println("Buy Orders");
+        // Order bOrder = to.buyOrders;
+        // while (bOrder != null) {
+        //     System.out.println(bOrder.price);
+        //     bOrder = bOrder.next.get();
+        // }
+
+        Thread adderThread = new Thread(new OrderAdder(ob));
+        adderThread.start();
+
+        try {
+            Thread.sleep(10000);
+        } catch (InterruptedException e) {
+            e.printStackTrace();
+        }
 
         ob.matchOrders();
 
-        to = ob.orders.get(0);
-        System.out.println("Sell Orders");
-        Order sOrder = to.sellOrders;
-        while (sOrder != null) {
-            System.out.println(sOrder.price);
-            sOrder = sOrder.next.get();
+        try {
+            Thread.sleep(1000);
+        } catch (InterruptedException e) {
+            e.printStackTrace();
         }
 
-        System.out.println("Buy Orders");
-        Order bOrder = to.buyOrders;
-        while (bOrder != null) {
-            System.out.println(bOrder.price);
-            bOrder = bOrder.next.get();
-        }
+        adderThread.interrupt();
     }
 }

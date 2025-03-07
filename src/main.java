@@ -1,6 +1,7 @@
 package src;
 
 import java.util.Arrays;
+import java.util.ArrayList;
 import java.util.List;
 import java.util.Random;
 import java.util.concurrent.atomic.AtomicReference;
@@ -20,6 +21,20 @@ class Order {
         this.qty = qty;
         this.price = price;
         this.next = new AtomicReference<>(null);
+    }
+}
+
+class MatchResult {
+    String ticker;
+    int qty;
+    double sellPrice;
+    double buyPrice;
+
+    MatchResult(String ticker, int qty, double buyPrice, double sellPrice) {
+        this.ticker = ticker;
+        this.qty = qty;
+        this.buyPrice = buyPrice;
+        this.sellPrice = sellPrice;
     }
 }
 
@@ -163,9 +178,11 @@ class OrderBook {
         }
     }
 
-    public void matchOrders() {
+    public List<MatchResult> matchOrders() {
         int i = 0;
         String[] tickerList = this.tickerIndex.get();
+        List<MatchResult> result = new ArrayList<>();
+
         while (tickerList[i] != null) {
             while (true) {
                 TickerOrder to = this.orders.get(i);
@@ -178,6 +195,7 @@ class OrderBook {
                 if (buyHead.qty == sellHead.qty) {
                     TickerOrder newTickerOrder = new TickerOrder(buyHead.next.get(), sellHead.next.get());
                     if (this.orders.compareAndSet(i, to, newTickerOrder)) {
+                        result.add(new MatchResult(buyHead.ticker, buyHead.qty, buyHead.price, sellHead.price));
                         System.out.printf("Matched order QTY:%s %s B:%s S:%s\n", buyHead.ticker, buyHead.qty, buyHead.price, sellHead.price);
                     }
                 } else if (buyHead.qty > sellHead.qty) {
@@ -187,6 +205,7 @@ class OrderBook {
                     TickerOrder newTickerOrder = new TickerOrder(newBuyHead, sellHead.next.get());
 
                     if (this.orders.compareAndSet(i, to, newTickerOrder)) {
+                        result.add(new MatchResult(buyHead.ticker, sellHead.qty, buyHead.price, sellHead.price));
                         System.out.printf("Matched order QTY:%s %s B:%s S:%s\n", buyHead.ticker, sellHead.qty, buyHead.price, sellHead.price);
                     }
                 } else {
@@ -196,6 +215,7 @@ class OrderBook {
                     TickerOrder newTickerOrder = new TickerOrder(buyHead.next.get(), newSellHead);
 
                     if (this.orders.compareAndSet(i, to, newTickerOrder)) {
+                        result.add(new MatchResult(buyHead.ticker, buyHead.qty, buyHead.price, sellHead.price));
                         System.out.printf("Matched order QTY:%s %s B:%s S:%s\n", buyHead.ticker, buyHead.qty, buyHead.price, sellHead.price);
                     }
                 }
@@ -204,6 +224,7 @@ class OrderBook {
 
             i++;
         }
+        return result;
     }
 }
 
@@ -265,23 +286,5 @@ public class main {
 
         adderThread1.interrupt();
         adderThread2.interrupt();
-
-
-        // Print remaining buy and sell order
-        to = ob.orders.get(0);
-        System.out.println("Sell Orders");
-        Order sOrder = to.sellOrders;
-        while (sOrder != null) {
-            System.out.printf("QTY: %s\t @%s\n", sOrder.qty, sOrder.price);
-            sOrder = sOrder.next.get();
-        }
-        System.err.println();
-
-        System.out.println("Buy Orders");
-        Order bOrder = to.buyOrders;
-        while (bOrder != null) {
-            System.out.printf("QTY: %s\t @%s \n", bOrder.qty, bOrder.price);
-            bOrder = bOrder.next.get();
-        }
     }
 }

@@ -1,8 +1,11 @@
+package src;
+
 import java.util.Arrays;
 import java.util.List;
 import java.util.Random;
 import java.util.concurrent.atomic.AtomicReference;
 import java.util.concurrent.atomic.AtomicReferenceArray;
+
 
 class Order {
     final String orderType;
@@ -73,7 +76,7 @@ class OrderBook {
             this.addBuyOrder(index, orderType, ticker, qty, price);
         }
 
-        System.out.printf("[Add] [%s] [%s] %s @ %s\n", orderType, ticker, qty, price);
+        System.out.printf("[Add]\t[%s]\t[%s] %s @ %s\n", orderType, ticker, qty, price);
     }
 
     void addSellOrder(int index, String orderType, String ticker, int qty, double price) {
@@ -170,19 +173,27 @@ class OrderBook {
 
                 if (buyHead.qty == sellHead.qty) {
                     TickerOrder newTickerOrder = new TickerOrder(buyHead.next.get(), sellHead.next.get());
-                    this.orders.compareAndSet(i, to, newTickerOrder);
+                    if (this.orders.compareAndSet(i, to, newTickerOrder)) {
+                        System.out.printf("Matched order QTY:%s %s B:%s S:%s\n", buyHead.ticker, buyHead.qty, buyHead.price, sellHead.price);
+                    }
                 } else if (buyHead.qty > sellHead.qty) {
                     int remainingQty = buyHead.qty - sellHead.qty;
                     Order newBuyHead = new Order("Buy", tickerList[i], remainingQty, buyHead.price);
+                    newBuyHead.next.set(buyHead.next.get());
                     TickerOrder newTickerOrder = new TickerOrder(newBuyHead, sellHead.next.get());
 
-                    this.orders.compareAndSet(i, to, newTickerOrder);
+                    if (this.orders.compareAndSet(i, to, newTickerOrder)) {
+                        System.out.printf("Matched order QTY:%s %s B:%s S:%s\n", buyHead.ticker, sellHead.qty, buyHead.price, sellHead.price);
+                    }
                 } else {
                     int remainingQty = sellHead.qty - buyHead.qty;
                     Order newSellHead = new Order("Sell", tickerList[i], remainingQty, sellHead.price);
+                    newSellHead.next.set(sellHead.next.get());
                     TickerOrder newTickerOrder = new TickerOrder(buyHead.next.get(), newSellHead);
 
-                    this.orders.compareAndSet(i, to, newTickerOrder);
+                    if (this.orders.compareAndSet(i, to, newTickerOrder)) {
+                        System.out.printf("Matched order QTY:%s %s B:%s S:%s\n", buyHead.ticker, buyHead.qty, buyHead.price, sellHead.price);
+                    }
                 }
 
             }
@@ -214,10 +225,10 @@ class OrderAdder implements Runnable {
             int qty = this.random.nextInt(100) + 1;
             double price = this.random.nextDouble() * 100;
 
-            this.ob.addOrder(orderType, ticker, qty, price);
+            this.ob.addOrder(orderType, "AA", qty, price);
 
             try {
-                Thread.sleep(500);
+                Thread.sleep(Constants.AUTO_ADD_DELAY);
             } catch (InterruptedException e) {
                 Thread.currentThread().interrupt();
             }
@@ -230,53 +241,35 @@ public class main {
     
     public static void main(String[] args) {
         OrderBook ob = new OrderBook();
-        // TickerOrder to;
-
-        // ob.addOrder("Buy", "AAA", 10, 20.0);
-        // ob.addOrder("Buy", "AAA", 10, 5.0);
-        // ob.addOrder("Buy", "AAA", 10, 40.0);
-
-        // to = ob.orders.get(0);
-        
-
-        // ob.addOrder("Sell", "AAA", 10, 20.0);
-        // ob.addOrder("Sell", "AAA", 10, 5.0);
-        // ob.addOrder("Sell", "AAA", 10, 40.0);
-
-        // ob.matchOrders();
-
-        // to = ob.orders.get(0);
-        // System.out.println("Sell Orders");
-        // Order sOrder = to.sellOrders;
-        // while (sOrder != null) {
-        //     System.out.println(sOrder.price);
-        //     sOrder = sOrder.next.get();
-        // }
-
-        // System.out.println("Buy Orders");
-        // Order bOrder = to.buyOrders;
-        // while (bOrder != null) {
-        //     System.out.println(bOrder.price);
-        //     bOrder = bOrder.next.get();
-        // }
+        TickerOrder to;
 
         Thread adderThread = new Thread(new OrderAdder(ob));
         adderThread.start();
 
         try {
-            Thread.sleep(10000);
+            Thread.sleep(Constants.WAIT_BEFORE_MATCH);
         } catch (InterruptedException e) {
             e.printStackTrace();
         }
 
         ob.matchOrders();
 
-        try {
-            Thread.sleep(1000);
-        } catch (InterruptedException e) {
-            e.printStackTrace();
-        }
-
         adderThread.interrupt();
+
+        to = ob.orders.get(0);
+        System.out.println("Sell Orders");
+        Order sOrder = to.sellOrders;
+        while (sOrder != null) {
+            System.out.printf("QTY: %s\t @%s\n", sOrder.qty, sOrder.price);
+            sOrder = sOrder.next.get();
+        }
+        System.err.println();
+
+        System.out.println("Buy Orders");
+        Order bOrder = to.buyOrders;
+        while (bOrder != null) {
+            System.out.printf("QTY: %s\t @%s \n", bOrder.qty, bOrder.price);
+            bOrder = bOrder.next.get();
+        }
     }
 }

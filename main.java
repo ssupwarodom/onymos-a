@@ -18,15 +18,23 @@ class Order {
     }
 }
 
+class TickerOrder {
+    final Order buyOrders;
+    final Order sellOrders;
+
+    TickerOrder(Order buyOrders, Order sellOrders) {
+        this.buyOrders = buyOrders;
+        this.sellOrders = sellOrders;
+    }
+}
+
 class OrderBook {
     final AtomicReference<String[]> tickerIndex;
-    final AtomicReferenceArray<Order> sellOrders;
-    final AtomicReferenceArray<Order> buyOrders;
+    final AtomicReferenceArray<TickerOrder> orders;
 
     OrderBook() {
         this.tickerIndex = new AtomicReference<>(new String[1024]);
-        this.sellOrders = new AtomicReferenceArray<>(1024);
-        this.buyOrders = new AtomicReferenceArray<>(1024);
+        this.orders = new AtomicReferenceArray<>(1024);
     }
 
     int getTickerIndex(String ticker) {
@@ -51,6 +59,12 @@ class OrderBook {
     public void addOrder(String orderType, String ticker, int qty, double price) {
         int index = this.getTickerIndex(ticker);
 
+        TickerOrder to = this.orders.get(index);
+        if (to == null) {
+            TickerOrder newTickerOrder = new TickerOrder(null, null);
+            this.orders.compareAndSet(index, null, newTickerOrder);
+        }
+
         if (orderType == "Sell") {
             this.addSellOrder(index, orderType, ticker, qty, price);
         } else if (orderType == "Buy") {
@@ -63,16 +77,20 @@ class OrderBook {
     void addSellOrder(int index, String orderType, String ticker, int qty, double price) {
         
         while (true) {
-            Order sellHead = this.sellOrders.get(index);
+
+            TickerOrder tickerOrder = this.orders.get(index);
             Order newOrder = new Order(orderType, ticker, qty, price);
+            Order sellHead = tickerOrder.sellOrders;
 
             if (sellHead == null) {
-                if (this.sellOrders.compareAndSet(index, null, newOrder)) {
+                TickerOrder newTickerOrder = new TickerOrder(tickerOrder.buyOrders, newOrder);
+                if (this.orders.compareAndSet(index, tickerOrder, newTickerOrder)) {
                     return;
                 }
             } else if (newOrder.price <= sellHead.price){
                 newOrder.next.set(sellHead);
-                if (this.sellOrders.compareAndSet(index, sellHead, newOrder)) {
+                TickerOrder newTickerOrder = new TickerOrder(tickerOrder.buyOrders, newOrder);
+                if (this.orders.compareAndSet(index, tickerOrder, newTickerOrder)) {
                     return;
                 }
             } else {
@@ -100,16 +118,20 @@ class OrderBook {
     void addBuyOrder(int index, String orderType, String ticker, int qty, double price) {
 
         while (true) {
-            Order buyHead = this.buyOrders.get(index);
+
+            TickerOrder tickerOrder = this.orders.get(index);
+            Order buyHead = tickerOrder.buyOrders;
             Order newOrder = new Order(orderType, ticker, qty, price);
 
             if (buyHead == null) {
-                if (this.buyOrders.compareAndSet(index, null, newOrder)) {
+                TickerOrder newTickerOrder = new TickerOrder(newOrder, tickerOrder.sellOrders);
+                if (this.orders.compareAndSet(index, tickerOrder, newTickerOrder)) {
                     return;
                 }
             } else if (newOrder.price >= buyHead.price){
                 newOrder.next.set(buyHead);
-                if (this.buyOrders.compareAndSet(index, buyHead, newOrder)) {
+                TickerOrder newTickerOrder = new TickerOrder(newOrder, tickerOrder.sellOrders);
+                if (this.orders.compareAndSet(index, tickerOrder, newTickerOrder)) {
                     return;
                 }
             } else {
@@ -132,31 +154,40 @@ class OrderBook {
         }
     }
 
-    // public void matchOrders() {
-    //     int i = 0;
-    //     String[] tickerList = this.tickerIndex.get();
-    //     while (tickerList[i] != null) {
-    //         while (true) {
-    //             Order buyHead = this.buyOrders.get(i);
-    //             Order sellHead = this.sellOrders.get(i);
-    //             if (sellHead == null || buyHead == null || sellHead.price > buyHead.price) {
-    //                 break;
-    //             }
+    public void matchOrders() {
+        int i = 0;
+        String[] tickerList = this.tickerIndex.get();
+        while (tickerList[i] != null) {
+            while (true) {
+                TickerOrder to = this.orders.get(i);
+                Order buyHead = to.buyOrders;
+                Order sellHead = to.sellOrders;
+                if (sellHead == null || buyHead == null || sellHead.price > buyHead.price) {
+                    break;
+                }
 
-    //             if (buyHead.qty == sellHead.qty) {
-    //                 this.buyOrders.compareAndSet(i, buyHead, buyHead.next.get());
-    //                 this.sellOrders.compareAndSet(i, sellHead, sellHead.next.get());
-    //             } else if (buyHead.qty > sellHead.qty) {
-    //                 this.sellOrders.compareAndSet(i, sellHead, sellHead.next.get());
-    //             } else {
+                if (buyHead.qty == sellHead.qty) {
+                    TickerOrder newTickerOrder = new TickerOrder(buyHead.next.get(), sellHead.next.get());
+                    this.orders.compareAndSet(i, to, newTickerOrder);
+                } else if (buyHead.qty > sellHead.qty) {
+                    int remainingQty = buyHead.qty - sellHead.qty;
+                    Order newBuyHead = new Order("Buy", tickerList[i], remainingQty, buyHead.price);
+                    TickerOrder newTickerOrder = new TickerOrder(newBuyHead, sellHead.next.get());
 
-    //             }
+                    this.orders.compareAndSet(i, to, newTickerOrder);
+                } else {
+                    int remainingQty = sellHead.qty - buyHead.qty;
+                    Order newSellHead = new Order("Sell", tickerList[i], remainingQty, sellHead.price);
+                    TickerOrder newTickerOrder = new TickerOrder(buyHead.next.get(), newSellHead);
 
-    //         }
+                    this.orders.compareAndSet(i, to, newTickerOrder);
+                }
 
-    //         i++;
-    //     }
-    // }
+            }
+
+            i++;
+        }
+    }
 }
 
 
@@ -164,22 +195,31 @@ public class main {
     
     public static void main(String[] args) {
         OrderBook ob = new OrderBook();
-
-        // ob.addOrder("Sell", "AAA", 10, 20.0);
-        // ob.addOrder("Sell", "AAA", 10, 5.0);
-        // ob.addOrder("Sell", "AAA", 10, 40.0);
-
-        // Order sOrder = ob.sellOrders.get(0);
-        // while (sOrder != null) {
-        //     System.out.println(sOrder.price);
-        //     sOrder = sOrder.next.get();
-        // }
+        TickerOrder to;
 
         ob.addOrder("Buy", "AAA", 10, 20.0);
         ob.addOrder("Buy", "AAA", 10, 5.0);
         ob.addOrder("Buy", "AAA", 10, 40.0);
 
-        Order bOrder = ob.buyOrders.get(0);
+        to = ob.orders.get(0);
+        
+
+        ob.addOrder("Sell", "AAA", 10, 20.0);
+        ob.addOrder("Sell", "AAA", 10, 5.0);
+        ob.addOrder("Sell", "AAA", 10, 40.0);
+
+        ob.matchOrders();
+
+        to = ob.orders.get(0);
+        System.out.println("Sell Orders");
+        Order sOrder = to.sellOrders;
+        while (sOrder != null) {
+            System.out.println(sOrder.price);
+            sOrder = sOrder.next.get();
+        }
+
+        System.out.println("Buy Orders");
+        Order bOrder = to.buyOrders;
         while (bOrder != null) {
             System.out.println(bOrder.price);
             bOrder = bOrder.next.get();

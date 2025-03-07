@@ -47,14 +47,18 @@ class OrderBook {
             String[] original = this.tickerIndex.get();
             int i = 0;
             while (i < original.length && original[i] != null) {
-                if (original[i] == ticker) {
+                if (original[i].equals(ticker)) {
                     return i;
                 }
                 i++;
             }
 
             String[] indices = Arrays.copyOf(original, original.length);
+            if (i >= 1024) {
+                System.out.println(Arrays.toString(original));
+            }
             indices[i] = ticker;
+            
             if (this.tickerIndex.compareAndSet(original, indices)) {
                 return i;
             }
@@ -70,13 +74,13 @@ class OrderBook {
             this.orders.compareAndSet(index, null, newTickerOrder);
         }
 
-        if (orderType == "Sell") {
+        if (orderType.equals("Sell")) {
             this.addSellOrder(index, orderType, ticker, qty, price);
-        } else if (orderType == "Buy") {
+        } else if (orderType.equals("Buy")) {
             this.addBuyOrder(index, orderType, ticker, qty, price);
         }
 
-        System.out.printf("[Add]\t[%s]\t[%s] %s @ %s\n", orderType, ticker, qty, price);
+        System.out.printf("[%s]\t[%s]\t%s \t@%s\n", orderType, ticker, qty, price);
     }
 
     void addSellOrder(int index, String orderType, String ticker, int qty, double price) {
@@ -203,6 +207,7 @@ class OrderBook {
     }
 }
 
+// Wrapper to automatically execute addOrder function
 class OrderAdder implements Runnable {
     private final OrderBook ob;
     private final Random random;
@@ -225,7 +230,7 @@ class OrderAdder implements Runnable {
             int qty = this.random.nextInt(100) + 1;
             double price = this.random.nextDouble() * 100;
 
-            this.ob.addOrder(orderType, "AA", qty, price);
+            this.ob.addOrder(orderType, ticker, qty, price);
 
             try {
                 Thread.sleep(Constants.AUTO_ADD_DELAY);
@@ -243,19 +248,26 @@ public class main {
         OrderBook ob = new OrderBook();
         TickerOrder to;
 
-        Thread adderThread = new Thread(new OrderAdder(ob));
-        adderThread.start();
+        Thread adderThread1 = new Thread(new OrderAdder(ob));
+        Thread adderThread2 = new Thread(new OrderAdder(ob));
+        adderThread1.start();
+        adderThread2.start();
 
-        try {
-            Thread.sleep(Constants.WAIT_BEFORE_MATCH);
-        } catch (InterruptedException e) {
-            e.printStackTrace();
+        for (int i = 0; i < Constants.MATCH_COUNT; i++) {
+            try {
+                Thread.sleep(Constants.DELAY_BETWEEN_MATCH);
+            } catch (InterruptedException e) {
+                e.printStackTrace();
+            }
+    
+            ob.matchOrders();
         }
 
-        ob.matchOrders();
+        adderThread1.interrupt();
+        adderThread2.interrupt();
 
-        adderThread.interrupt();
 
+        // Print remaining buy and sell order
         to = ob.orders.get(0);
         System.out.println("Sell Orders");
         Order sOrder = to.sellOrders;
